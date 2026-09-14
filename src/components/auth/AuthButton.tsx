@@ -19,12 +19,16 @@ export function AuthButton({ className, onNavigate }: AuthButtonProps) {
   const [isLoading, setIsLoading] = React.useState(false);
 
   React.useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setIsAuthed(!!data.user));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
-      setIsAuthed(!!session?.user)
-    );
-    return () => sub.subscription.unsubscribe();
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data }) => setIsAuthed(!!data?.user)).catch(() => setIsAuthed(false));
+      const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
+        setIsAuthed(!!session?.user)
+      );
+      return () => sub?.subscription?.unsubscribe();
+    } catch {
+      setIsAuthed(false);
+    }
   }, []);
 
   async function handleSignOut() {

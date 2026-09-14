@@ -42,35 +42,49 @@ export async function POST(request: Request) {
     );
   }
 
-  const admin = createAdminClient();
+  try {
+    const admin = createAdminClient();
 
-  const { data, error } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, role },
-  });
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, role },
+    });
 
-  if (error) {
-    const status = /already|exists|registered/i.test(error.message) ? 409 : 500;
-    return NextResponse.json({ ok: false, error: error.message }, { status });
+    if (error) {
+      const status = /already|exists|registered/i.test(error.message) ? 409 : 500;
+      return NextResponse.json({ ok: false, error: error.message }, { status });
+    }
+
+    const { error: profileError } = await admin.from("profiles").upsert({
+      id: data.user.id,
+      email,
+      full_name: fullName,
+      role,
+    });
+
+    if (profileError) {
+      // Roll back the auth user so the account can be retried cleanly.
+      await admin.auth.admin.deleteUser(data.user.id);
+      return NextResponse.json(
+        { ok: false, error: profileError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, data: { id: data.user.id } });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to connect to authentication service.";
+    if (message.includes("fetch failed") || message.includes("ENOTFOUND")) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Cannot connect to Supabase. Please configure your live NEXT_PUBLIC_SUPABASE_URL and keys in .env",
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  const { error: profileError } = await admin.from("profiles").upsert({
-    id: data.user.id,
-    email,
-    full_name: fullName,
-    role,
-  });
-
-  if (profileError) {
-    // Roll back the auth user so the account can be retried cleanly.
-    await admin.auth.admin.deleteUser(data.user.id);
-    return NextResponse.json(
-      { ok: false, error: profileError.message },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({ ok: true, data: { id: data.user.id } });
 }

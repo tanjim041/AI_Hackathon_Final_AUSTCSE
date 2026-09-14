@@ -19,6 +19,7 @@ import {
   UserPlus,
   Settings,
   ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -43,6 +44,7 @@ type NavItem = {
   exact?: boolean;
 };
 
+// All items across roles
 const navItems: NavItem[] = [
   // Faculty portal
   { name: "Overview & Profile", href: "/dashboard/faculty", icon: LayoutDashboard, badge: "Faculty", roles: ["faculty"], exact: true },
@@ -75,75 +77,130 @@ const publicNavItems = [
 export function Navbar() {
   const pathname = usePathname();
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [isMoreOpen, setIsMoreOpen] = React.useState(false);
+  const moreRef = React.useRef<HTMLDivElement>(null);
   const [role, setRole] = React.useState<DbRole | null>(null);
   const [identity, setIdentity] = React.useState<{ name: string; department: string } | null>(null);
 
   React.useEffect(() => {
-    const supabase = createClient();
+    try {
+      const supabase = createClient();
 
-    async function loadRole() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setRole(null);
-        setIdentity(null);
-        return;
+      async function loadRole() {
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) {
+            setRole(null);
+            setIdentity(null);
+            return;
+          }
+          const { data } = await supabase
+            .from("profiles")
+            .select("role, full_name, department")
+            .eq("id", user.id)
+            .single();
+          setRole((data?.role as DbRole) ?? null);
+          setIdentity(
+            data ? { name: data.full_name as string, department: (data.department as string) ?? "CSE" } : null
+          );
+        } catch {
+          setRole(null);
+          setIdentity(null);
+        }
       }
-      const { data } = await supabase
-        .from("profiles")
-        .select("role, full_name, department")
-        .eq("id", user.id)
-        .single();
-      setRole((data?.role as DbRole) ?? null);
-      setIdentity(
-        data ? { name: data.full_name as string, department: (data.department as string) ?? "CSE" } : null
-      );
+
+      loadRole();
+      const { data: sub } = supabase.auth.onAuthStateChange(() => loadRole());
+      return () => sub?.subscription?.unsubscribe();
+    } catch {
+      setRole(null);
+      setIdentity(null);
+    }
+  }, []);
+
+  // Close "More" dropdown on outside click or escape key
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setIsMoreOpen(false);
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMoreOpen(false);
+      }
     }
 
-    loadRole();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => loadRole());
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    if (isMoreOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isMoreOpen]);
+
+  // Close dropdown on pathname change
+  React.useEffect(() => {
+    setIsMoreOpen(false);
+  }, [pathname]);
 
   // Filter links for authenticated roles
   const visibleNavItems = role
     ? navItems.filter((item) => item.roles.includes(role))
     : [];
 
+  // For faculty, partition primary tabs and secondary tabs in "More" menu
+  const primaryNavItems = role === "faculty"
+    ? visibleNavItems.slice(0, 5)
+    : visibleNavItems;
+
+  const moreNavItems = role === "faculty"
+    ? visibleNavItems.slice(5)
+    : [];
+
+  const isMoreActive = moreNavItems.some((item) =>
+    item.exact
+      ? pathname === item.href
+      : pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+  );
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 animate-navbar-entrance">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-3 sm:px-6 lg:px-8 gap-2 sm:gap-4">
+      <div className="mx-auto flex h-16 max-w-7xl 2xl:max-w-[1440px] items-center justify-between px-3 sm:px-6 lg:px-8 gap-2 sm:gap-4">
         {/* Left Cluster: Logo & Desktop Carnival Badge */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <Link
             href="/"
             className="group flex items-center gap-2 sm:gap-2.5 transition-transform duration-200 active:scale-95 shrink-0"
           >
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-colors duration-200 group-hover:bg-primary/90">
-              <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-colors duration-200 group-hover:bg-primary/90 shrink-0">
+              <GraduationCap className="h-5 w-5" />
             </div>
             <div className="flex flex-col">
-              <span className="font-heading text-base sm:text-lg font-bold tracking-tight text-foreground flex items-center gap-1.5">
+              <span className="font-heading text-base sm:text-lg font-bold tracking-tight text-foreground flex items-center gap-1.5 whitespace-nowrap">
                 FacultyOS
               </span>
-              <span className="text-[9px] sm:text-[10px] font-medium text-muted-foreground uppercase tracking-widest hidden xs:block">
+              <span className="text-[9px] sm:text-[10px] font-medium text-muted-foreground uppercase tracking-widest hidden xs:block whitespace-nowrap">
                 Academic Co-Pilot
               </span>
             </div>
           </Link>
 
-          {/* Desktop-only badge (collapses into sheet on mobile/tablet) */}
-          <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-accent/15 text-accent border border-accent/30 transition-colors duration-200">
+          {/* Desktop-only badge (collapses into sheet on mobile/tablet, shown on 2xl to preserve nav room) */}
+          <span className="hidden 2xl:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-accent/15 text-accent border border-accent/30 transition-colors duration-200 shrink-0 whitespace-nowrap">
             <Sparkles className="h-3 w-3" />
             AUST CSE Carnival 8.0
           </span>
         </div>
 
         {/* Center: Desktop Navigation Links */}
-        {visibleNavItems.length > 0 && (
-          <nav className="hidden xl:flex items-center gap-1 xl:gap-1.5">
-            {visibleNavItems.map((item) => {
+        {primaryNavItems.length > 0 && (
+          <nav className="hidden xl:flex items-center gap-1.5 2xl:gap-2">
+            {primaryNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = item.exact
                 ? pathname === item.href
@@ -155,47 +212,119 @@ export function Navbar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "relative flex items-center gap-1.5 px-2.5 py-1.5 xl:px-3 xl:py-2 text-xs xl:text-sm font-medium rounded-md transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "relative h-9 flex items-center gap-1.5 px-3 text-[13px] font-medium rounded-md whitespace-nowrap transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0",
                     isActive
                       ? "text-primary dark:text-primary-foreground font-semibold bg-muted"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5 xl:h-4 xl:w-4" />
-                  <span>{item.name}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="whitespace-nowrap">{item.name}</span>
                   {isActive && (
                     <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
                   )}
                 </Link>
               );
             })}
+
+            {/* "More" Dropdown Menu for Faculty secondary tabs */}
+            {moreNavItems.length > 0 && (
+              <div ref={moreRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsMoreOpen((prev) => !prev)}
+                  aria-expanded={isMoreOpen}
+                  aria-haspopup="true"
+                  className={cn(
+                    "relative h-9 flex items-center gap-1.5 px-3 text-[13px] font-medium rounded-md whitespace-nowrap transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0",
+                    isMoreActive || isMoreOpen
+                      ? "text-primary dark:text-primary-foreground font-semibold bg-muted"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  )}
+                >
+                  <span>More</span>
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform duration-200 shrink-0",
+                      isMoreOpen && "rotate-180"
+                    )}
+                  />
+                  {isMoreActive && (
+                    <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
+                  )}
+                </button>
+
+                {isMoreOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-1.5 w-56 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95 z-50"
+                  >
+                    <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Additional Tools
+                    </div>
+                    {moreNavItems.map((item) => {
+                      const ItemIcon = item.icon;
+                      const isItemActive = item.exact
+                        ? pathname === item.href
+                        : pathname === item.href ||
+                          (item.href !== "/" && pathname.startsWith(item.href));
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          role="menuitem"
+                          onClick={() => setIsMoreOpen(false)}
+                          className={cn(
+                            "flex items-center justify-between px-2.5 py-2 rounded-md text-xs font-medium transition-colors duration-150",
+                            isItemActive
+                              ? "bg-muted text-primary font-semibold"
+                              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ItemIcon className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="whitespace-nowrap">{item.name}</span>
+                          </div>
+                          {item.badge && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/40 font-normal">
+                              {item.badge}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </nav>
         )}
 
-        {/* Right Cluster: Status Indicator + Theme Toggle + Get Started (Always Visible) + Hamburger */}
+        {/* Right Cluster: Status Indicator + Theme Toggle + Get Started / Sign Out + Hamburger */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           {/* Desktop Status Indicator (collapses into sheet on mobile/tablet) */}
           {role === "student" && identity ? (
-            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 text-primary border border-primary/20 text-xs font-medium">
-              <GraduationCap className="h-3.5 w-3.5" />
+            <div className="hidden xl:flex h-9 items-center gap-1.5 px-2.5 rounded-md bg-primary/10 text-primary border border-primary/20 text-xs font-medium shrink-0 whitespace-nowrap">
+              <GraduationCap className="h-3.5 w-3.5 shrink-0" />
               <span className="max-w-[140px] xl:max-w-[180px] truncate">
                 Student: {identity.name}
               </span>
             </div>
           ) : (
-            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-secondary/15 text-secondary border border-secondary/30 text-xs font-medium">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="hidden xl:flex h-9 items-center gap-1.5 px-2.5 rounded-md bg-secondary/15 text-secondary border border-secondary/30 text-xs font-medium shrink-0 whitespace-nowrap">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
               <span>Live Co-Pilot</span>
             </div>
           )}
 
           {/* Desktop Theme Toggle (collapses into sheet on mobile/tablet) */}
-          <div className="hidden xl:flex items-center">
+          <div className="hidden xl:flex h-9 items-center shrink-0">
             <ModeToggle />
           </div>
 
           {/* Primary CTA Button: ALWAYS VISIBLE across all screen widths */}
-          <AuthButton className="h-8 sm:h-9 text-xs sm:text-sm" />
+          <AuthButton className="h-9 text-xs sm:text-sm shrink-0 whitespace-nowrap" />
 
           {/* Responsive Hamburger Menu (Mobile/Tablet Sheet) */}
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
@@ -203,7 +332,7 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="xl:hidden h-8 w-8 sm:h-9 sm:w-9 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-200 shrink-0"
+                className="xl:hidden h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-200 shrink-0"
                 aria-label="Open navigation menu"
               >
                 <Menu className="h-5 w-5" />
